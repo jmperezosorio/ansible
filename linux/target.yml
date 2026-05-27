@@ -5,20 +5,20 @@
   gather_facts: no
 
   tasks:
-    - name: Instalar Python 3.9 en RHEL 8 si existe dnf
+    - name: Instalar Python 3.9 en servidores RHEL/CentOS/Rocky/Alma
       ansible.builtin.raw: |
-        if command -v dnf >/dev/null 2>&1; then
-          dnf install -y python39 python39-pip || dnf install -y python3.9 python3.9-pip
-        elif command -v yum >/dev/null 2>&1; then
-          yum install -y python39 python39-pip || yum install -y python3.9 python3.9-pip
-        elif command -v apt-get >/dev/null 2>&1; then
-          apt-get update && apt-get install -y python3 python3-pip
+        if ! command -v python3.9 >/dev/null 2>&1; then
+          if command -v dnf >/dev/null 2>&1; then
+            dnf install -y python39 python39-pip
+          elif command -v yum >/dev/null 2>&1; then
+            yum install -y python39 python39-pip
+          fi
         fi
       changed_when: false
 
-    - name: Validar Python 3.9 instalado
+    - name: Validar Python instalado
       ansible.builtin.raw: |
-        /usr/bin/python3.9 --version || /bin/python3.9 --version || python3.9 --version
+        python3.9 --version
       changed_when: false
 
 
@@ -31,6 +31,7 @@
     ansible_python_interpreter: /usr/bin/python3.9
     usuario_ansible: ansible
     espacio_minimo_disponible_pct: 20
+
     servicios_criticos:
       - sshd
       - crond
@@ -44,7 +45,7 @@
         success_msg: "El filesystem {{ item.mount }} tiene espacio suficiente"
       loop: "{{ ansible_mounts }}"
 
-    - name: Obtener servicios del sistema
+    - name: Obtener información de servicios
       ansible.builtin.service_facts:
 
     - name: Validar servicios críticos
@@ -52,8 +53,8 @@
         that:
           - ansible_facts.services[item + '.service'] is defined
           - ansible_facts.services[item + '.service'].state == 'running'
-        fail_msg: "El servicio {{ item }} no existe o no está corriendo"
-        success_msg: "El servicio {{ item }} está corriendo"
+        fail_msg: "El servicio {{ item }} no está corriendo"
+        success_msg: "El servicio {{ item }} está activo"
       loop: "{{ servicios_criticos }}"
 
     - name: Crear usuario ansible
@@ -63,7 +64,7 @@
         create_home: yes
         state: present
 
-    - name: Permitir sudo sin password al usuario ansible
+    - name: Configurar sudo sin password
       ansible.builtin.copy:
         dest: /etc/sudoers.d/ansible
         content: "{{ usuario_ansible }} ALL=(ALL) NOPASSWD:ALL\n"
@@ -72,10 +73,10 @@
         mode: '0440'
         validate: /usr/sbin/visudo -cf %s
 
-    - name: Actualizar sistema operativo RedHat/RHEL/CentOS/Rocky/Alma
-      ansible.builtin.dnf:
-        name: "*"
-        state: latest
+    - name: Actualizar sistema operativo RHEL/CentOS/Rocky/Alma
+      ansible.builtin.raw: |
+        dnf update -y || yum update -y
+      changed_when: true
       when: ansible_os_family == "RedHat"
 
     - name: Actualizar sistema operativo Debian/Ubuntu
@@ -83,3 +84,7 @@
         update_cache: yes
         upgrade: dist
       when: ansible_os_family == "Debian"
+
+    - name: Reiniciar servidor si es requerido
+      ansible.builtin.reboot:
+        reboot_timeout: 1800
