@@ -1,0 +1,44 @@
+---
+- name: Validaciones y actualización base Windows
+  hosts: os_windows
+  gather_facts: yes
+
+  vars:
+    usuario_ansible: ansible
+    password_ansible: "Cambiar_Esta_Clave_Segura_123!"
+    servicios_windows:
+      - WinRM
+      - W32Time
+
+  tasks:
+    - name: Verificar uso de CPU
+      ansible.windows.win_shell: |
+        $cpu = Get-Counter '\Processor(_Total)\% Processor Time'
+        [math]::Round($cpu.CounterSamples.CookedValue, 2)
+      register: cpu_usage
+
+    - name: Mostrar uso de CPU
+      ansible.builtin.debug:
+        msg: "Uso actual de CPU: {{ cpu_usage.stdout | trim }}%"
+
+    - name: Validar servicios críticos de Windows
+      ansible.windows.win_service:
+        name: "{{ item }}"
+        state: started
+      loop: "{{ servicios_windows }}"
+
+    - name: Crear usuario ansible local
+      ansible.windows.win_user:
+        name: "{{ usuario_ansible }}"
+        password: "{{ password_ansible }}"
+        state: present
+        groups:
+          - Administrators
+
+    - name: Instalar actualizaciones de Windows
+      ansible.windows.win_updates:
+        category_names:
+          - SecurityUpdates
+          - CriticalUpdates
+          - UpdateRollups
+        reboot: yes
