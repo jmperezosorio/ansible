@@ -1,0 +1,61 @@
+---
+- name: Validaciones y actualización base Linux
+  hosts: os_linux
+  become: yes
+  gather_facts: yes
+
+  vars:
+    usuario_ansible: ansible
+    espacio_minimo_disponible_pct: 20
+    servicios_criticos:
+      - sshd
+      - cron
+
+  tasks:
+    - name: Validar espacio disponible en disco
+      ansible.builtin.assert:
+        that:
+          - item.size_available > (item.size_total * espacio_minimo_disponible_pct / 100)
+        fail_msg: "El filesystem {{ item.mount }} tiene menos del {{ espacio_minimo_disponible_pct }}% libre"
+        success_msg: "El filesystem {{ item.mount }} tiene espacio suficiente"
+      loop: "{{ ansible_mounts }}"
+
+    - name: Validar servicios críticos
+      ansible.builtin.service_facts:
+
+    - name: Verificar que los servicios críticos estén activos
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services[item + '.service'].state == 'running'
+        fail_msg: "El servicio {{ item }} no está corriendo"
+        success_msg: "El servicio {{ item }} está corriendo"
+      loop: "{{ servicios_criticos }}"
+      when: ansible_facts.services[item + '.service'] is defined
+
+    - name: Crear usuario ansible
+      ansible.builtin.user:
+        name: "{{ usuario_ansible }}"
+        shell: /bin/bash
+        create_home: yes
+        state: present
+
+    - name: Agregar usuario ansible a sudoers sin password
+      ansible.builtin.copy:
+        dest: /etc/sudoers.d/ansible
+        content: "ansible ALL=(ALL) NOPASSWD:ALL\n"
+        owner: root
+        group: root
+        mode: '0440'
+        validate: /usr/sbin/visudo -cf %s
+
+    - name: Actualizar sistema operativo - Debian/Ubuntu
+      ansible.builtin.apt:
+        update_cache: yes
+        upgrade: dist
+      when: ansible_os_family == "Debian"
+
+    - name: Actualizar sistema operativo - RedHat/Rocky/Alma/CentOS
+      ansible.builtin.dnf:
+        name: "*"
+        state: latest
+      when: ansible_os_family == "RedHat"
