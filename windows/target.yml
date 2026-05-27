@@ -2,6 +2,7 @@
 - name: Validaciones y actualización base Windows
   hosts: os_windows
   gather_facts: yes
+  become: false
 
   vars:
     usuario_ansible: ansible
@@ -21,11 +22,16 @@
       ansible.builtin.debug:
         msg: "Uso actual de CPU: {{ cpu_usage.stdout | trim }}%"
 
-    - name: Validar servicios críticos de Windows
-      ansible.windows.win_service:
+    - name: Verificar servicios críticos de Windows
+      ansible.windows.win_service_info:
         name: "{{ item }}"
-        state: started
       loop: "{{ servicios_windows }}"
+      register: servicios_info
+
+    - name: Mostrar estado de servicios
+      ansible.builtin.debug:
+        msg: "{{ item.item }} está en estado {{ item.services[0].state }}"
+      loop: "{{ servicios_info.results }}"
 
     - name: Crear usuario ansible local
       ansible.windows.win_user:
