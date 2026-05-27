@@ -1,4 +1,24 @@
 ---
+- name: Bootstrap Python en servidores Linux
+  hosts: os_linux
+  become: yes
+  gather_facts: no
+
+  tasks:
+    - name: Instalar Python 3 si no existe
+      ansible.builtin.raw: |
+        if ! command -v python3 >/dev/null 2>&1; then
+          if command -v dnf >/dev/null 2>&1; then
+            dnf install -y python3
+          elif command -v yum >/dev/null 2>&1; then
+            yum install -y python3
+          elif command -v apt-get >/dev/null 2>&1; then
+            apt-get update && apt-get install -y python3
+          fi
+        fi
+      changed_when: false
+
+
 - name: Validaciones y actualización base Linux
   hosts: os_linux
   become: yes
@@ -9,7 +29,7 @@
     espacio_minimo_disponible_pct: 20
     servicios_criticos:
       - sshd
-      - cron
+      - crond
 
   tasks:
     - name: Validar espacio disponible en disco
@@ -20,17 +40,17 @@
         success_msg: "El filesystem {{ item.mount }} tiene espacio suficiente"
       loop: "{{ ansible_mounts }}"
 
-    - name: Validar servicios críticos
+    - name: Obtener servicios del sistema
       ansible.builtin.service_facts:
 
-    - name: Verificar que los servicios críticos estén activos
+    - name: Validar que los servicios críticos existan y estén corriendo
       ansible.builtin.assert:
         that:
+          - ansible_facts.services[item + '.service'] is defined
           - ansible_facts.services[item + '.service'].state == 'running'
-        fail_msg: "El servicio {{ item }} no está corriendo"
+        fail_msg: "El servicio {{ item }} no existe o no está corriendo"
         success_msg: "El servicio {{ item }} está corriendo"
       loop: "{{ servicios_criticos }}"
-      when: ansible_facts.services[item + '.service'] is defined
 
     - name: Crear usuario ansible
       ansible.builtin.user:
@@ -39,22 +59,22 @@
         create_home: yes
         state: present
 
-    - name: Agregar usuario ansible a sudoers sin password
+    - name: Permitir sudo sin password al usuario ansible
       ansible.builtin.copy:
         dest: /etc/sudoers.d/ansible
-        content: "ansible ALL=(ALL) NOPASSWD:ALL\n"
+        content: "{{ usuario_ansible }} ALL=(ALL) NOPASSWD:ALL\n"
         owner: root
         group: root
         mode: '0440'
         validate: /usr/sbin/visudo -cf %s
 
-    - name: Actualizar sistema operativo - Debian/Ubuntu
+    - name: Actualizar sistema operativo Debian/Ubuntu
       ansible.builtin.apt:
         update_cache: yes
         upgrade: dist
       when: ansible_os_family == "Debian"
 
-    - name: Actualizar sistema operativo - RedHat/Rocky/Alma/CentOS
+    - name: Actualizar sistema operativo RHEL/CentOS/Rocky/Alma
       ansible.builtin.dnf:
         name: "*"
         state: latest
